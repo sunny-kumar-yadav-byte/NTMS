@@ -6,6 +6,7 @@ Scapy-based ARP packet capture for the Network Threat Monitoring System.
 
 from __future__ import annotations
 
+import time
 import logging
 from threading import Lock, Thread
 from typing import Any, Callable
@@ -78,7 +79,7 @@ class PacketCapture:
                     break
 
                 # Keep this thread alive while AsyncSniffer runs.
-                self._thread.join(timeout=0.2)
+                time.sleep(0.2)
 
         except PermissionError:
             self.logger.exception(

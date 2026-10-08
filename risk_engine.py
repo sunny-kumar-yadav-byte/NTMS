@@ -64,3 +64,20 @@ class RiskEngine:
             "risk_score": score,
             "risk_level": self.level(score).value,
         }
+
+    def process_honeypot_hit(self, attacker_ip: str, port: int) -> dict[str, Any]:
+        """
+        Handles a honeypot hit by registering a high-risk reconnaissance event.
+        """
+        base_score = 70.0  # High score for probing fake decoys
+        risk_lvl = self.level(base_score).value
+
+        print(f"[RISK ENGINE] IP {attacker_ip} hit decoy port {port}. Risk Score set to {base_score} ({risk_lvl}).")
+
+        return {
+            "threat_type": "HONEYPOT_RECONNAISSANCE",
+            "attacker_ip": attacker_ip,
+            "port": port,
+            "risk_score": base_score,
+            "risk_level": risk_lvl,
+        }

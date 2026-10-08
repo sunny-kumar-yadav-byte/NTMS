@@ -2,6 +2,7 @@
 dashboard.py
 ============
 Lightweight Tkinter dashboard for the Network Threat Monitoring System.
+Includes Deception Technology (Honeypot) monitoring widgets.
 """
 
 from __future__ import annotations
@@ -45,14 +46,15 @@ class DashboardApp:
         self.alert_label: ttk.Label | None = None
         self.packet_label: ttk.Label | None = None
         self.threat_label: ttk.Label | None = None
+        self.honeypot_label: ttk.Label | None = None
         self.tree: ttk.Treeview | None = None
 
     def run(self) -> None:
         """Create and run the Tkinter dashboard."""
         self.root = tk.Tk()
         self.root.title("Network Threat Monitoring System")
-        self.root.geometry("1050x650")
-        self.root.minsize(850, 500)
+        self.root.geometry("1100x680")
+        self.root.minsize(900, 520)
 
         self.root.protocol("WM_DELETE_WINDOW", self._handle_close)
 
@@ -90,7 +92,7 @@ class DashboardApp:
 
         ttk.Label(
             header,
-            text="ARP Spoofing Detection Dashboard",
+            text="Proactive Threat Detection & Deception Technology Dashboard",
             font=("Arial", 11),
         ).pack(anchor="w")
 
@@ -101,6 +103,7 @@ class DashboardApp:
         self.alert_label = self._create_card(cards, "Active Alerts")
         self.packet_label = self._create_card(cards, "Packets")
         self.threat_label = self._create_card(cards, "Threats")
+        self.honeypot_label = self._create_card(cards, "Deception Traps")
 
         table_frame = ttk.Frame(self.root, padding=15)
         table_frame.pack(fill="both", expand=True)
@@ -125,8 +128,8 @@ class DashboardApp:
             "time": "Time",
             "ip": "IP Address",
             "mac": "MAC Address",
-            "threat": "Threat",
-            "risk": "Risk",
+            "threat": "Threat Type",
+            "risk": "Risk Level",
             "score": "Score",
             "status": "Status",
         }
@@ -140,6 +143,9 @@ class DashboardApp:
                 column,
                 width=120,
             )
+
+        # Configure colors for Honeypot events
+        self.tree.tag_configure("honeypot", background="#ffe6e6", foreground="#990000")
 
         scrollbar = ttk.Scrollbar(
             table_frame,
@@ -204,6 +210,15 @@ class DashboardApp:
             padx=5,
         )
 
+        ttk.Button(
+            buttons,
+            text="Generate HTML Report",
+            command=self.generate_report,
+        ).pack(
+            side="right",
+            padx=5,
+        )
+
     def _create_card(
         self,
         parent: ttk.Frame,
@@ -242,33 +257,23 @@ class DashboardApp:
 
             if self.device_label:
                 self.device_label.config(
-                    text=str(summary["device_count"])
+                    text=str(summary.get("device_count", 0))
                 )
 
             if self.alert_label:
                 self.alert_label.config(
-                    text=str(summary["active_alerts"])
+                    text=str(summary.get("active_alerts", 0))
                 )
 
             if self.detection_engine:
                 stats = self.detection_engine.get_stats()
-
-                packets = stats.get(
-                    "total_packets",
-                    0,
-                )
-
-                threats = stats.get(
-                    "total_threats",
-                    0,
-                )
-
+                packets = stats.get("total_packets", 0)
+                threats = stats.get("total_threats", 0)
             else:
                 packets = 0
-
                 threats = sum(
-                    int(item["count"])
-                    for item in summary["threat_counts"]
+                    int(item.get("count", 0))
+                    for item in summary.get("threat_counts", [])
                 )
 
             if self.packet_label:
@@ -281,7 +286,19 @@ class DashboardApp:
                     text=str(threats)
                 )
 
-            self._refresh_alert_table()
+            # Count honeypot hits across recent alerts
+            alerts = self.alert_manager.get_alerts(limit=100)
+            honeypot_count = sum(
+                1 for a in alerts 
+                if "HONEYPOT" in str(a.get("threat_type", "")).upper() or "RECONNAISSANCE" in str(a.get("threat_type", "")).upper()
+            )
+
+            if self.honeypot_label:
+                self.honeypot_label.config(
+                    text=str(honeypot_count)
+                )
+
+            self._refresh_alert_table(alerts)
 
         except Exception:
             # Prevent a temporary database/dashboard error
@@ -294,17 +311,23 @@ class DashboardApp:
                 self.refresh,
             )
 
-    def _refresh_alert_table(self) -> None:
-        """Refresh the alert table."""
+    def _refresh_alert_table(self, alerts: list[dict[str, Any]] | None = None) -> None:
+        """Refresh the alert table with highlighting for deception alerts."""
         if self.tree is None:
             return
 
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        for alert in self.alert_manager.get_alerts(
-            limit=100
-        ):
+        if alerts is None:
+            alerts = self.alert_manager.get_alerts(limit=100)
+
+        for alert in alerts:
+            threat_type = str(alert.get("threat_type", ""))
+            is_honeypot = "HONEYPOT" in threat_type.upper() or "RECONNAISSANCE" in threat_type.upper()
+            
+            tags = ("honeypot",) if is_honeypot else ()
+
             self.tree.insert(
                 "",
                 "end",
@@ -313,11 +336,12 @@ class DashboardApp:
                     alert.get("timestamp", ""),
                     alert.get("ip_address", ""),
                     alert.get("mac_address", ""),
-                    alert.get("threat_type", ""),
+                    threat_type,
                     alert.get("risk_level", ""),
                     alert.get("risk_score", ""),
                     alert.get("status", ""),
                 ),
+                tags=tags,
             )
 
     def start_capture(self) -> None:
@@ -351,3 +375,23 @@ class DashboardApp:
         )
 
         self.refresh()
+
+    def generate_report(self) -> None:
+        """Trigger report generation."""
+        if self.report_generator:
+            try:
+                report_path = self.report_generator.generate(format="html")
+                messagebox.showinfo(
+                    "Report Generated",
+                    f"Report successfully saved to:\n{report_path}",
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Report Error",
+                    f"Failed to generate report: {e}",
+                )
+        else:
+            messagebox.showwarning(
+                "Not Available",
+                "Report Generator module is not configured.",
+            )

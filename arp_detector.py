@@ -65,6 +65,8 @@ class ARPSpoofDetector:
         previous_mac = self._ip_to_mac.get(source_ip)
 
         if previous_mac and previous_mac != source_mac:
+            self._mac_to_ips[previous_mac].discard(source_ip)
+            
             changes = self._mac_changes[source_ip]
             changes.append(now)
             self._trim(
